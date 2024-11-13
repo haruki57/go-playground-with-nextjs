@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <body>
+    <div>Run some http server (e.g. npx http-server) on /html</div>
+    <div>See console</div>
+    <button onclick="postMessage('from button...')">Go</button>
+    
+    <!-- <form name="myform" onsubmit="postMessage();">
+      <input type="submit" value="送信" />
+    </form> -->
+    <script>
+      var i = 1
+      async function postMessage(text) {
+        await fetch('http://localhost:8080/postMessage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text + i })
+        });
+        i++;
+      }
+      const eventSource = new EventSource("http://localhost:8080/streamMessage");
+      eventSource.onmessage = function(event) {
+        console.log("Received message:", event.data);
+      };
+    </script>
+  </body>
+</html>
