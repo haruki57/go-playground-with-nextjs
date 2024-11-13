@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <body>
+    <div>Run some http server (e.g. npx http-server) on /html</div>
+    <div>See console</div>
+    <script>
+      async function fetchJsonEvents() {
+      const response = await fetch('http://localhost:8080/eventsJson');
+      if (response.ok) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const text = decoder.decode(value, { stream: true });
+          console.log("Received JSON data:", JSON.parse(text));
+        }
+      } else {
+        console.error("Failed to fetch events");
+      }
+    }
+
+    fetchJsonEvents();
+    </script>
+  </body>
+</html>
