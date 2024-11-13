@@ -5,7 +5,7 @@ FROM golang:1.23.3
 WORKDIR /app
 
 # Goモジュールを有効にし、依存パッケージをコピー
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 # ソースコードをコピーしてビルド
