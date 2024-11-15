@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 func SSEHandler(c *gin.Context) {
@@ -165,5 +168,80 @@ func StreamMessageHandler(c *gin.Context) {
 			fmt.Println("Done")
 			return
 		}
+	}
+}
+
+// websocket
+
+type Room struct {
+	clients map[*websocket.Conn]bool
+	mu      sync.Mutex
+}
+
+var (
+	upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	rooms = make(map[string]*Room)
+	mu    sync.Mutex
+)
+
+// getOrCreateRoom retrieves a room by name or creates a new one if it doesn't exist.
+func getOrCreateRoom(roomName string) *Room {
+	mu.Lock()
+	defer mu.Unlock()
+
+	room, exists := rooms[roomName]
+	if !exists {
+		room = &Room{
+			clients: make(map[*websocket.Conn]bool),
+		}
+		rooms[roomName] = room
+	}
+	return room
+}
+
+// WebSocketHandler handles WebSocket connections for a specific room
+func WebSocketHandler(c *gin.Context) {
+	roomName := c.Param("roomName")
+	room := getOrCreateRoom(roomName)
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// Add the client to the room
+	room.mu.Lock()
+	room.clients[conn] = true
+	room.mu.Unlock()
+
+	defer func() {
+		room.mu.Lock()
+		delete(room.clients, conn)
+		room.mu.Unlock()
+	}()
+
+	// Listen for messages from the client
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("WebSocket read error: %v", err)
+			break
+		}
+		log.Printf("Room [%s] received: %s", roomName, message)
+
+		// Broadcast the message to all clients in the room
+		room.mu.Lock()
+		for client := range room.clients {
+			if err := client.WriteMessage(websocket.TextMessage, message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				client.Close()
+				delete(room.clients, client)
+			}
+		}
+		room.mu.Unlock()
 	}
 }

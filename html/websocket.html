@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Room Test</title>
+</head>
+<body>
+    <h1>WebSocket Room Test</h1>
+    <input type="text" id="roomName" placeholder="Enter Room Name">
+    <button id="connectButton">Connect</button>
+    <input type="text" id="messageInput" placeholder="Type a message">
+    <button id="sendButton">Send</button>
+    <ul id="messages"></ul>
+
+    <script>
+        let ws;
+
+        document.getElementById("connectButton").onclick = () => {
+            const roomName = document.getElementById("roomName").value;
+            if (!roomName) {
+                alert("Please enter a room name.");
+                return;
+            }
+
+            ws = new WebSocket(`ws://localhost:8080/ws/${roomName}`);
+
+            ws.onopen = () => {
+                console.log("Connected to room:", roomName);
+            };
+
+            ws.onmessage = (event) => {
+                const li = document.createElement("li");
+                li.textContent = event.data;
+                document.getElementById("messages").appendChild(li);
+            };
+
+            ws.onclose = () => {
+                console.log("Disconnected from WebSocket");
+            };
+        };
+
+        document.getElementById("sendButton").onclick = () => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert("WebSocket is not connected.");
+                return;
+            }
+            const message = document.getElementById("messageInput").value;
+            ws.send(message);
+        };
+    </script>
+</body>
+</html>

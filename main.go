@@ -38,6 +38,10 @@ func main() {
 	router.POST("/postMessage", PostMessageHandler)
 	router.GET("/streamMessage", StreamMessageHandler)
 
+
+	// WebSocket endpoint for rooms
+	router.GET("/ws/:roomName", WebSocketHandler)
+
 	// サーバーを起動
 	router.Run(":8080")
 }
