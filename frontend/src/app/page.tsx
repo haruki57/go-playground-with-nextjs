@@ -2,22 +2,21 @@
 
 import { useEffect, useState } from "react";
 
-const ws = new WebSocket(`ws://localhost:8080/ws/123`);
-
-ws.onopen = () => {
-  console.log("Connected to room:123");
-};
-
-ws.onclose = () => {
-  console.log("Disconnected from WebSocket");
-};
 export default function Home() {
   const [messages, setMessages] = useState<string[]>([]);
-  ws.onmessage = (event) => {
-    setMessages((prev) => [...prev, event.data]);
-  };
 
   useEffect(() => {
+    const ws = new WebSocket(`${process.env.NEXT_PUBLIC_BACKEND_URL}/ws/123`);
+    ws.onopen = () => {
+      console.log("Connected to room:123");
+    };
+
+    ws.onclose = () => {
+      console.log("Disconnected from WebSocket");
+    };
+    ws.onmessage = (event) => {
+      setMessages((prev) => [...prev, event.data]);
+    };
     setInterval(() => {
       ws.send(new Date().toISOString());
     }, 1000);
