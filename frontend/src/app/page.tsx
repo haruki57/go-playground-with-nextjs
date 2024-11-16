@@ -6,7 +6,7 @@ export default function Home() {
   const [messages, setMessages] = useState<string[]>([]);
 
   useEffect(() => {
-    const ws = new WebSocket(`${process.env.NEXT_PUBLIC_BACKEND_URL}/ws/123`);
+    const ws = new WebSocket(`${process.env.NEXT_PUBLIC_BACKEND_URL}/ws/124`);
     ws.onopen = () => {
       console.log("Connected to room:123");
     };

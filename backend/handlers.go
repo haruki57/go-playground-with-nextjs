@@ -231,6 +231,10 @@ func WebSocketHandler(c *gin.Context) {
 			log.Printf("WebSocket read error: %v", err)
 			break
 		}
+		message = []byte(roomName + " " + (string(message)))
+		for i, v := range roomName {
+			message[i]=byte(v);
+		}
 		log.Printf("Room [%s] received: %s", roomName, message)
 
 		// Broadcast the message to all clients in the room
