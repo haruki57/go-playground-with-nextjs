@@ -16,8 +16,9 @@ export default function Home() {
     if (room.length == 0) {
       return;
     }
+    const wsPrefix = process.env.NODE_ENV === "development" ? "ws" : "wss";
     const newWs = new WebSocket(
-      `ws://${process.env.NEXT_PUBLIC_BACKEND_DOMAIN}/ws/${room}`
+      `${wsPrefix}://${process.env.NEXT_PUBLIC_BACKEND_DOMAIN}/ws/${room}`
     );
     newWs.onopen = () => {
       console.log("Connected to room:" + room);
