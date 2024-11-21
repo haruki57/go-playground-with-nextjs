@@ -1,4 +1,4 @@
-module go-sse-playground
+module go-playground
 
 go 1.23.2
 
