@@ -45,10 +45,12 @@ type Card struct {
 }
 const JokerValue = 99
 
+type CardStr = string // 3D, 13H, Joker etc...
+
 type Player struct {
-	Name string
-	Role PlayerRole
-	Cards []Card
+	Name string `json:"name"`
+	Role PlayerRole `json:"role"`
+	Cards []Card `json:"cards"`
 }
 
 type SubmitMode string
@@ -303,7 +305,6 @@ func canSubmitCards(topFieldCards, submittingCards []Card,
 	_, isKakumei := submitModes[KakumeiMode]
 	if isKakumei {
 		cards := make([]*Card, len(topFieldCards)+len(submittingCards))
-		fmt.Println(topFieldCards)
 		for i := 0; i < len(topFieldCards); i++ {
 			cards[i] = &topFieldCards[i]
 		}
@@ -419,6 +420,11 @@ func WebSocketDaifugoHandler(c *gin.Context) {
 			log.Printf("WebSocket read error: %v", err)
 			break
 		}
+		room.mu.Lock()
+		handleWebsocketMessage(room, message)
+		room.mu.Unlock()
+		
+		/*
 		message = []byte(roomName + " " + (string(message)))
 		for i, v := range roomName {
 			message[i]=byte(v);
@@ -426,7 +432,7 @@ func WebSocketDaifugoHandler(c *gin.Context) {
 		log.Printf("Room [%s] received: %s", roomName, message)
 
 		// Broadcast the message to all clients in the room
-		room.mu.Lock()
+		
 		for client := range room.clients {
 			if err := client.WriteMessage(websocket.TextMessage, message); err != nil {
 				log.Printf("WebSocket write error: %v", err)
@@ -434,12 +440,35 @@ func WebSocketDaifugoHandler(c *gin.Context) {
 				delete(room.clients, client)
 			}
 		}
-		room.mu.Unlock()
+		
+		*/
 	}
 }
 
 func DebugGetGameState(ctx *gin.Context) {
 	roomName := ctx.Param("roomName")
-	rooms[roomName] = getOrCreateRoom(roomName)
-	ctx.JSON(http.StatusOK, getOrCreateRoom(roomName).game)
+	if rooms[roomName] == nil {
+		ctx.JSON(http.StatusOK, nil)
+	} else {
+		ctx.JSON(http.StatusOK, rooms[roomName].game)
+	}
+}
+
+func ListRoomsHandler(ctx *gin.Context) {
+	mu.Lock()
+	defer mu.Unlock()
+	ret := make([]string, 0, len(rooms))
+	for key, value := range rooms {
+		fmt.Println(key)
+		fmt.Println(value)
+		ret = append(ret, key)
+	}
+	ctx.JSON(http.StatusOK, ret)
+}
+
+// /postMessage エンドポイント
+func CreateRoomHandler(ctx *gin.Context) {
+	roomName := ctx.Param("roomName")
+	getOrCreateRoom(roomName)
+	ctx.JSON(http.StatusOK, true)
 }

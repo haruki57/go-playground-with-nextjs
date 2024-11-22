@@ -46,8 +46,11 @@ func main() {
 	router.GET("/ws/:roomName", WebSocketHandler)
 
 	// daifugo
-	router.GET("/daifugo/debug/:roomName", daifugo.DebugGetGameState)
-	router.GET("/daifugo/ws/:roomName", daifugo.WebSocketDaifugoHandler)
+	router.GET("/daifugo/debug/rooms/:roomName", daifugo.DebugGetGameState)
+	router.GET("/daifugo/ws/rooms/:roomName", daifugo.WebSocketDaifugoHandler)
+	router.GET("/daifugo/rooms", daifugo.ListRoomsHandler)
+	router.POST("/daifugo/rooms/:roomName", daifugo.CreateRoomHandler)
+	
 
 	// サーバーを起動
 	router.Run(":8080")
