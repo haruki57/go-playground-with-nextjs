@@ -1,6 +1,7 @@
 package daifugo
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -39,9 +40,9 @@ const (
 )
 
 type Card struct {
-	Number int
-	Value int
-	CardType CardType
+	Number int `json:"number"`
+	Value int `json:"value"`
+	CardType CardType `json:"cardType"`
 }
 const JokerValue = 99
 
@@ -95,7 +96,7 @@ type Game struct {
 }
 
 type DaifugoRoom struct {
-	clients map[*websocket.Conn]bool
+	clients map[string]*websocket.Conn
 	game *Game 
 	mu sync.Mutex
 }
@@ -133,7 +134,7 @@ func makeDeck() []Card {
 	total := 54 // 4 * 13 + 2
 	ret := make([]Card, 0, total)
 	ret = append(ret, makeCard(-1, Joker))
-	ret = append(ret, makeCard(-1, Joker))
+	ret = append(ret, makeCard(-2, Joker)) // set num to -2 to distinguish them
 	for _, v := range []CardType{Club, Spade, Heart, Diamond} {
 		for i := 1; i <= 13; i++ {
 			ret = append(ret, makeCard(i, v))
@@ -151,6 +152,10 @@ func (game *Game) startGame() error {
 		return errors.New("num of players is too many")
 	}
 	game.GameState = PlayingCards
+	rand.Shuffle(len(game.Players), func(i, j int) {game.Players[i], game.Players[j] = game.Players[j], game.Players[i]})
+	for _, player := range game.Players {
+		player.Cards = make([]Card, 0)
+	}
 	for i, card := range makeDeck() {
 		game.Players[i%len(game.Players)].Cards = append(game.Players[i%len(game.Players)].Cards, card)
 	}
@@ -169,7 +174,6 @@ func (game *Game) startGame() error {
 			player.Role = Heimin
 		}
 	}
-	
 	return nil
 }
 
@@ -200,13 +204,14 @@ func (game *Game) addPlayer(playerName string) error {
 	return nil
 }
 
-func (game *Game) removePlayer(playerName string) {
+func (game *Game) removePlayer(playerName string) error {
 	for i, player := range game.Players {
 		if player.Name == playerName {
 			game.Players = append(game.Players[:i], game.Players[i+1:]...)
-			return
+			return nil
 		}
 	}
+	return errors.New("cannot find player:" + playerName)
 }
 
 func (game *Game) pass(player *Player) bool {
@@ -220,6 +225,9 @@ func (game *Game) pass(player *Player) bool {
 	}
 	return true
 }
+func (game *Game) getTopFieldCards() []Card { 
+	return game.PlayingCards[len(game.PlayingCards)-game.LastSubmittedNum:]
+}
 
 func (game *Game) submitCards(player *Player, submittingCards []Card) bool {
 	currentPlayer := game.Players[game.Turn]
@@ -228,9 +236,7 @@ func (game *Game) submitCards(player *Player, submittingCards []Card) bool {
 	}
 
 	// TODO validate that player.Cards contains submittingCards
-
-	topFieldCards := game.PlayingCards[len(game.PlayingCards)-game.LastSubmittedNum:]
-	if canSubmit, _ := canSubmitCards(topFieldCards, submittingCards, game.SubmitModes, game.SpecialRules); !canSubmit {
+	if canSubmit, _ := game.canSubmitCards(submittingCards); !canSubmit {
 		return false
 	}
 	game.LastSubmittedNum = len(submittingCards)
@@ -300,8 +306,10 @@ func flipCardValue(cards []*Card) {
 }
 
 // TODO add special rule such as 縛り
-func canSubmitCards(topFieldCards, submittingCards []Card, 
-		submitModes map[SubmitMode]struct{}, specialRules map[SpecialRule]struct{}) (canSubmit bool, reason string) {
+func (game *Game) canSubmitCards(submittingCards []Card) (canSubmit bool, reason string) {
+	submitModes := game.SubmitModes
+	specialRules := game.SpecialRules
+	topFieldCards := game.getTopFieldCards()
 	_, isKakumei := submitModes[KakumeiMode]
 	if isKakumei {
 		cards := make([]*Card, len(topFieldCards)+len(submittingCards))
@@ -313,6 +321,29 @@ func canSubmitCards(topFieldCards, submittingCards []Card,
 		}
 		flipCardValue(cards)
 		defer flipCardValue(cards)
+	}
+
+	isAllSameValue := true
+	submitCardValue := JokerValue
+	for i := 0; i < len(submittingCards); i++ {
+		card1 := submittingCards[i]
+		if card1.CardType == Joker {
+			continue;
+		} else {
+			submitCardValue = card1.Value
+		}
+		for j := i+1; j < len(submittingCards); j++ {
+			card2 := submittingCards[j]
+			if card2.CardType == Joker {
+				continue;
+			}
+			if card1.Value != card2.Value {
+				isAllSameValue = false
+			}	
+		}
+	}
+	if !isAllSameValue {
+		return false, "not all same value"
 	}
 	
 	if len(topFieldCards) == 0 {
@@ -342,28 +373,6 @@ func canSubmitCards(topFieldCards, submittingCards []Card,
 		}
 	}
 
-	isAllSameValue := true
-	submitCardValue := JokerValue
-	for i := 0; i < len(submittingCards); i++ {
-		card1 := submittingCards[i]
-		if card1.CardType == Joker {
-			continue;
-		} else {
-			submitCardValue = card1.Value
-		}
-		for j := i+1; j < len(submittingCards); j++ {
-			card2 := submittingCards[j]
-			if card2.CardType == Joker {
-				continue;
-			}
-			if card1.Value != card2.Value {
-				isAllSameValue = false
-			}	
-		}
-	}
-	if !isAllSameValue {
-		return false, "not all same value"
-	}
 	if currentValue < submitCardValue {
 		return true, "submitted value is bigger"
 	}
@@ -378,7 +387,7 @@ func getOrCreateRoom(roomName string) *DaifugoRoom {
 	room, exists := rooms[roomName]
 	if !exists {
 		room = &DaifugoRoom{
-			clients: make(map[*websocket.Conn]bool),
+			clients: make(map[string]*websocket.Conn),
 			game: createGameWithStandardRules(),
 		}
 		rooms[roomName] = room
@@ -393,7 +402,9 @@ func (game *Game) addRule() {
 // WebSocketDaifugoHandler handles WebSocket connections for a specific room
 func WebSocketDaifugoHandler(c *gin.Context) {
 	roomName := c.Param("roomName")
+	playerName := c.Param("playerName")
 	room := getOrCreateRoom(roomName)
+	room.game.addPlayer(playerName)
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -404,14 +415,38 @@ func WebSocketDaifugoHandler(c *gin.Context) {
 
 	// Add the client to the room
 	room.mu.Lock()
-	room.clients[conn] = true
+	room.clients[playerName] = conn
 	room.mu.Unlock()
 
 	defer func() {
 		room.mu.Lock()
-		delete(room.clients, conn)
+		delete(room.clients, playerName)
 		room.mu.Unlock()
 	}()
+
+	type AddPlayerDataResponse struct {
+		PlayerNames []string `json:"playerNames"`
+	}
+	
+	playerNames := make([]string, len(room.game.Players))
+	for i, player := range room.game.Players {
+		playerNames[i] = player.Name	
+	}
+	dataResponse, _ := json.Marshal(AddPlayerDataResponse{
+		PlayerNames: playerNames,
+	})
+	responseObject := RawMessageResponse{
+		Type: "ADD_PLAYER",
+		Data: dataResponse,
+	}
+	response, _ := json.Marshal(responseObject)
+	for playerName, client := range room.clients {
+		if err := client.WriteMessage(websocket.TextMessage, response); err != nil {
+			log.Printf("WebSocket write error: %v", err)
+			client.Close()
+			delete(room.clients, playerName)
+		}
+	}
 
 	// Listen for messages from the client
 	for {

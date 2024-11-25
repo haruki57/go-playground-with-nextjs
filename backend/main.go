@@ -47,7 +47,7 @@ func main() {
 
 	// daifugo
 	router.GET("/daifugo/debug/rooms/:roomName", daifugo.DebugGetGameState)
-	router.GET("/daifugo/ws/rooms/:roomName", daifugo.WebSocketDaifugoHandler)
+	router.GET("/daifugo/ws/rooms/:roomName/:playerName", daifugo.WebSocketDaifugoHandler)
 	router.GET("/daifugo/rooms", daifugo.ListRoomsHandler)
 	router.POST("/daifugo/rooms/:roomName", daifugo.CreateRoomHandler)
 	
