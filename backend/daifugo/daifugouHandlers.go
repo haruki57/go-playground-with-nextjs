@@ -56,19 +56,19 @@ type Player struct {
 
 type SubmitMode string
 const (
-    Normal SubmitMode = "Normal"
-		ShibariMode SubmitMode = "ShibariMode"
-    KakumeiMode SubmitMode = "KakumeiMode"
-    KaidanMode SubmitMode = "KaidanMode"
+	Normal SubmitMode = "Normal"
+	ShibariMode SubmitMode = "ShibariMode"
+	KakumeiMode SubmitMode = "KakumeiMode"
+	KaidanMode SubmitMode = "KaidanMode"
 )
 
 type SpecialRule string
 const (
-	Yagiri SpecialRule = "Yagiri"
-	KakumeiRule SpecialRule = "KakumeiRule"
-	ShibariRule SpecialRule = "ShibariRule"
-	Spade3Rule SpecialRule = "Spade3Rule"
-	//KaidanRule SpecialRule = "KaidanRule"
+Yagiri SpecialRule = "Yagiri"
+KakumeiRule SpecialRule = "KakumeiRule"
+ShibariRule SpecialRule = "ShibariRule"
+Spade3Rule SpecialRule = "Spade3Rule"
+//KaidanRule SpecialRule = "KaidanRule"
 )
 var StandardRule = map[SpecialRule]struct{}{
 	Yagiri: {},
@@ -114,6 +114,7 @@ func createGameWithStandardRules() *Game {
 		Players: make([]*Player, 0),
 		GameState: WaitingForPlayers,
 		SpecialRules: maps.Clone(StandardRule),
+		PlayingCards: make([]Card, 0),
 		Turn: 0,
 		LastSubmittedTurn: -1,
 	}
@@ -214,30 +215,36 @@ func (game *Game) removePlayer(playerName string) error {
 	return errors.New("cannot find player:" + playerName)
 }
 
-func (game *Game) pass(player *Player) bool {
-	currentPlayer := game.Players[game.Turn]
-	if player.Name != currentPlayer.Name {
-		return false
+func (game *Game) getCurrentPlayer() *Player {
+	if game.Turn < 0 {
+		return nil
 	}
+	return game.Players[game.Turn]
+}
+
+func (game *Game) pass() {
 	game.Turn = (game.Turn + 1) % len(game.Players)
-	if (game.Turn == game.LastSubmittedTurn) {
+	fmt.Println(game.Turn, game.LastSubmittedTurn)
+	if game.Turn == game.LastSubmittedTurn {
 		game.discardPlayingCards()
 	}
-	return true
 }
 func (game *Game) getTopFieldCards() []Card { 
+	fmt.Println("hoge")
+	fmt.Println(game.PlayingCards[len(game.PlayingCards)-game.LastSubmittedNum:])
+	fmt.Println("fuga")
 	return game.PlayingCards[len(game.PlayingCards)-game.LastSubmittedNum:]
 }
 
-func (game *Game) submitCards(player *Player, submittingCards []Card) bool {
+func (game *Game) tryToSubmitCards(player *Player, submittingCards []Card) (isSubmitted bool, reason string) {
 	currentPlayer := game.Players[game.Turn]
 	if player.Name != currentPlayer.Name {
-		return false
+		return false, "not your turn"
 	}
 
 	// TODO validate that player.Cards contains submittingCards
-	if canSubmit, _ := game.canSubmitCards(submittingCards); !canSubmit {
-		return false
+	if canSubmit, reason := game.canSubmitCards(submittingCards); !canSubmit {
+		return false, reason
 	}
 	game.LastSubmittedNum = len(submittingCards)
 	game.PlayingCards = append(game.PlayingCards, submittingCards...)
@@ -252,10 +259,20 @@ func (game *Game) submitCards(player *Player, submittingCards []Card) bool {
 			break
 		}
 	}
-	if contains8 {
+	spade3 := false
+	lenPlayingCards := len(game.PlayingCards)
+	if lenPlayingCards >= 2 && 
+		game.PlayingCards[lenPlayingCards-2].CardType == Joker && 
+		(game.PlayingCards[lenPlayingCards-1].Number == 3 && 
+		game.PlayingCards[lenPlayingCards-1].CardType == Spade) {
+		spade3 = true
+	}
+
+	// Nagasu
+	if contains8 || spade3 {
 		game.discardPlayingCards()
-		game.Turn = game.LastSubmittedNum
-		game.LastSubmittedNum = -1
+		game.Turn = game.LastSubmittedTurn
+		game.LastSubmittedNum = 0
 	}
 
 	if len(submittingCards) >= 4 {
@@ -269,7 +286,7 @@ func (game *Game) submitCards(player *Player, submittingCards []Card) bool {
 	
 	// TODO Shibari
 
-	return true
+	return true, "submitted"
 }
 
 func (player *Player) removeCards(cards []Card) {
@@ -284,7 +301,7 @@ func (player *Player) removeCards(cards []Card) {
 
 func (game *Game) discardPlayingCards() {
 	game.Trush = append(game.Trush, game.PlayingCards...)
-	game.PlayingCards = nil
+	game.PlayingCards = make([]Card, 0)
 	game.LastSubmittedNum = 0
 	delete(game.SubmitModes, ShibariMode)
 }

@@ -46,8 +46,8 @@ export default function CardComponent({
 }: {
   number: number;
   cardType: CardType;
-  isSelected: boolean;
-  handleClick: (number: number, cardType: CardType) => void;
+  isSelected?: boolean;
+  handleClick?: (number: number, cardType: CardType) => void;
 }) {
   const cardColor =
     cardType === "Diamond" || cardType === "Heart" ? "text-red-500" : "";
@@ -61,7 +61,9 @@ export default function CardComponent({
         isSelected && "font-bold"
       )}
       onClick={() => {
-        handleClick(number, cardType);
+        if (handleClick) {
+          handleClick(number, cardType);
+        }
       }}
     >
       <div>{number}</div>

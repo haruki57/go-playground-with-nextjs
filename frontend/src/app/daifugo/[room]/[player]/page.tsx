@@ -5,7 +5,15 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import CardComponent from "./CardComponent";
 
-type CardType = "Club" | "Spade" | "Heart" | "Diamond" | "Joker";
+type CardType = "Spade" | "Club" | "Heart" | "Diamond" | "Joker";
+
+const cardTypeOrder = {
+  Spade: 1,
+  Club: 2,
+  Heart: 3,
+  Diamond: 4,
+  Joker: 99,
+} as const;
 
 type AddPlayerResponse = {
   type: "ADD_PLAYER";
@@ -18,8 +26,35 @@ type GameStartResponse = {
     players: Player[];
   };
 };
+type ChangeCardState = {
+  type: "CHANGE_CARD_STATE";
+  data: {
+    handCards: Card[];
+    players: Player[];
+    submitModes: SubmitMode[];
+    topFieldCards: Card[];
+    turn: number;
+  };
+};
+
+type GameDataResponse = {
+  type: "GAME_DATA";
+  data: {
+    players: Player[];
+    gameState: GameState;
+    submitModes: SubmitMode[];
+    specialRule: SpecialRule[];
+    topFieldCards: Card[];
+    turn: number;
+  };
+};
 type MessageResponse = { type: "MESSAGE"; data: { message: string } };
-type Response = AddPlayerResponse | GameStartResponse | MessageResponse;
+type Response =
+  | AddPlayerResponse
+  | GameStartResponse
+  | MessageResponse
+  | ChangeCardState
+  | GameDataResponse;
 
 type Card = {
   number: number;
@@ -31,6 +66,9 @@ type Player = {
   name: string;
   numHandCards: number;
 };
+type GameState = "WaitingForPlayers" | "PlayingCards" | "GameEnded";
+type SubmitMode = "Normal" | "ShibariMode" | "KakumeiMode" | "KaidanMode";
+type SpecialRule = "Normal" | "ShibariMode" | "KakumeiMode" | "KaidanMode";
 
 export default function Page() {
   const { room, player: playerName } = useParams();
@@ -38,12 +76,12 @@ export default function Page() {
   const [messages, setMessages] = useState<string[]>([]);
   const [debugMessages, setDebugMessages] = useState<string[]>([]);
   const [ws, setWs] = useState<WebSocket | undefined>();
-  const [gameState, setGameState] = useState<
-    "WaitingForPlayers" | "PlayingCards" | "GameEnded"
-  >("WaitingForPlayers");
+  const [gameState, setGameState] = useState<GameState>("WaitingForPlayers");
 
   const [handCards, setHandCards] = useState<Card[]>([]);
   const [selectedCards, setSelectedCards] = useState<Set<Card>>(new Set());
+  const [topFieldCards, setTopFieldCards] = useState<Card[]>([]);
+  const [submitModes, setSubmitModes] = useState<SubmitMode[]>([]);
   const [turn, setTurn] = useState<number>(0);
   const [isEnteredRoom, setIsEnteredRoom] = useState<boolean>(false);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -51,6 +89,7 @@ export default function Page() {
 
   const handleData = useCallback(
     (responseStr: string) => {
+      console.log(responseStr);
       const response = JSON.parse(responseStr) as Response;
       if (response.type === "ADD_PLAYER") {
         const playerNamesToAdd = response.data.playerNames;
@@ -61,25 +100,38 @@ export default function Page() {
         );
       } else if (response.type === "GAME_START") {
         const gameStartData = response.data;
-        console.log(gameStartData);
         setGameState("PlayingCards");
         setTurn(0);
-        setHandCards(
-          gameStartData.handCards.sort((a, b) => {
-            if (a.value === b.value) {
-              return a.cardType.localeCompare(b.cardType);
-            }
-            return a.value - b.value;
-          })
-        );
+        setHandCards(gameStartData.handCards);
         setPlayers(gameStartData.players);
       } else if (response.type === "MESSAGE") {
         setMessages((prev) => [...prev, response.data.message]);
+      } else if (response.type === "CHANGE_CARD_STATE") {
+        setSelectedCards(new Set());
+        setHandCards(response.data.handCards);
+        setPlayers(response.data.players);
+        setSubmitModes(response.data.submitModes);
+        setTopFieldCards(response.data.topFieldCards);
+        setTurn(response.data.turn);
+      } else if (response.type === "GAME_DATA") {
+        console.log(response.data.players);
+        setPlayers(response.data.players);
+        setSubmitModes(response.data.submitModes);
+        setGameState(response.data.gameState);
+        setTopFieldCards(response.data.topFieldCards);
+        setTurn(response.data.turn);
       } else {
         console.log("unknown response type");
       }
     },
-    [setPlayers, setGameState, setTurn, setHandCards]
+    [
+      setPlayers,
+      setGameState,
+      setTurn,
+      setHandCards,
+      setTopFieldCards,
+      setSubmitModes,
+    ]
   );
 
   useEffect(() => {
@@ -126,33 +178,51 @@ export default function Page() {
             </div>
           );
         })}
-        {handCards.map((card) => {
-          return (
-            <CardComponent
-              key={card.number + card.cardType}
-              number={card.number}
-              cardType={card.cardType}
-              isSelected={selectedCards.has(card)}
-              handleClick={(number, cardType) => {
-                const newSelectedCards = new Set(selectedCards);
-                const foundCard = handCards.find(
-                  (card) => card.number === number && card.cardType === cardType
-                );
-                if (foundCard == undefined) {
-                  return;
-                }
-                if (newSelectedCards.has(foundCard)) {
-                  newSelectedCards.delete(foundCard);
-                } else {
-                  newSelectedCards.add(foundCard);
-                }
-                setSelectedCards(newSelectedCards);
-              }}
-            />
-          );
-        })}
+        <div className="flex mb-4">
+          {topFieldCards.map((card) => {
+            return (
+              <CardComponent
+                key={card.number + card.cardType}
+                number={card.number}
+                cardType={card.cardType}
+              ></CardComponent>
+            );
+          })}
+        </div>
+        {handCards
+          .sort((a, b) => {
+            if (a.value === b.value) {
+              return cardTypeOrder[a.cardType] - cardTypeOrder[b.cardType];
+            }
+            return a.value - b.value;
+          })
+          .map((card) => {
+            return (
+              <CardComponent
+                key={card.number + card.cardType}
+                number={card.number}
+                cardType={card.cardType}
+                isSelected={selectedCards.has(card)}
+                handleClick={(number, cardType) => {
+                  const newSelectedCards = new Set(selectedCards);
+                  const foundCard = handCards.find(
+                    (card) =>
+                      card.number === number && card.cardType === cardType
+                  );
+                  if (foundCard == undefined) {
+                    return;
+                  }
+                  if (newSelectedCards.has(foundCard)) {
+                    newSelectedCards.delete(foundCard);
+                  } else {
+                    newSelectedCards.add(foundCard);
+                  }
+                  setSelectedCards(newSelectedCards);
+                }}
+              />
+            );
+          })}
         <button
-          value="カードを出す"
           onClick={() => {
             ws?.send(
               JSON.stringify({
@@ -163,22 +233,31 @@ export default function Page() {
           }}
         >
           カードを出す
+        </button>{" "}
+        <button
+          onClick={() => {
+            ws?.send(
+              JSON.stringify({
+                type: "PASS",
+                data: { playerName },
+              })
+            );
+          }}
+        >
+          パス
         </button>
-
+        {submitModes.map((mode, idx) => (
+          <div key={idx}>{mode}</div>
+        ))}
         {messages.reverse().map((message, idx) => (
           <div key={idx}>{message}</div>
         ))}
+        {JSON.stringify(debugMessages)}
       </div>
     );
   }
   return (
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      {/* <input
-        type="text"
-        value={playerName}
-        disabled={isEnteredRoom}
-        onChange={(e) => setPlayerName(e.target.value)}
-      /> */}
       <input
         type="button"
         value="入室"
