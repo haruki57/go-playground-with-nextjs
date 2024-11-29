@@ -57,7 +57,6 @@ func parseMessageTypeAndPlayerName(rawJsonBytes []byte) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	fmt.Println(msg.Data)
 	return msg, nil
 }
 
@@ -72,12 +71,13 @@ type GameDataResponse struct {
 	SubmitModes []SubmitMode `json:"submitModes"`
 	SpecialRules []SpecialRule `json:"specialRules"`
 	TopFieldCards []Card `json:"topFieldCards"`
+	PlayersByRank []string `json:"playersByRank"`
 }
 
 func gameToGamaDataResponse(game *Game) GameDataResponse {
 	players := make([]PublicPlayer, len(game.Players))
 	for i, player := range game.Players {
-		players[i] = PublicPlayer{Name: player.Name, NumHandCards: len(player.Cards)}
+		players[i] = PublicPlayer{Name: player.Name, NumHandCards: len(player.Cards), Role: player.Role}
 	}
 	submitModes := make([]SubmitMode, len(game.SubmitModes))
 	for mode := range game.SubmitModes {
@@ -94,6 +94,7 @@ func gameToGamaDataResponse(game *Game) GameDataResponse {
 		SubmitModes: submitModes,
 		SpecialRules: specialRules,
 		TopFieldCards: game.getTopFieldCards(),
+		PlayersByRank: game.PlayersByRank,
 	}
 }
 
@@ -129,43 +130,6 @@ type RawMessageResponse struct {
 	Data json.RawMessage `json:"data"`
 }
 
-/*
-type AddPlayerDataRequest struct {
-	PlayerName string `json:"playerName"`
-}
-
-type AddPlayerDataResponse struct {
-	PlayerName string `json:"playerName"`
-}
-
-func handleAddPlayer(room *DaifugoRoom, data json.RawMessage) {
-	fmt.Println("handleAddPlayer")
-	var addPlayerDataRequest AddPlayerDataRequest 
-	json.Unmarshal(data, &addPlayerDataRequest)
-	err := room.game.addPlayer(addPlayerDataRequest.PlayerName)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	playerName := addPlayerDataRequest.PlayerName
-	dataResponse, _ := json.Marshal(AddPlayerDataResponse{
-		PlayerName: playerName,
-	})
-	responseObject := MessageResponse{
-		Type: "ADD_PLAYER",
-		Data: dataResponse,
-	}
-	response, _ := json.Marshal(responseObject)
-	for playerName, client := range room.clients {
-		if err := client.WriteMessage(websocket.TextMessage, response); err != nil {
-			log.Printf("WebSocket write error: %v", err)
-			client.Close()
-			delete(room.clients, playerName)
-		}
-	}
-}
-*/
 type RemovePlayerDataRequest struct {
 	PlayerName string `json:"playerName"`
 }
@@ -213,6 +177,7 @@ type GameStartResponse struct {
 type PublicPlayer struct{
 	Name string `json:"name"`
 	NumHandCards int `json:"numHandCards"`
+	Role PlayerRole `json:"role"`
 }
 
 func handleGameStart(room *DaifugoRoom) {
@@ -221,10 +186,7 @@ func handleGameStart(room *DaifugoRoom) {
 	game.startGame()
 	players := make([]PublicPlayer, len(game.Players))
 	for i, player := range game.Players {
-		players[i] = PublicPlayer{Name: player.Name, NumHandCards: len(player.Cards)}
-	}
-	for _, player := range game.Players {
-		fmt.Println(player.Cards)	
+		players[i] = PublicPlayer{Name: player.Name, NumHandCards: len(player.Cards), Role: player.Role}
 	}
 	for playerName, client := range room.clients {
 		var handCards []Card
@@ -265,10 +227,6 @@ type MessageResponse struct{
 
 type ChangeCardStateResponse struct {
 	HandCards []Card `json:"handCards"`
-	Players []PublicPlayer `json:"players"`
-	SubmitModes []SubmitMode `json:"submitModes"`
-	Turn int `json:"turn"`
-	TopFieldCards []Card `json:"topFieldCards"`
 }
 func handleSubmitCards(room *DaifugoRoom, data json.RawMessage) {
 	fmt.Println("handleSubmitCards")
@@ -283,9 +241,7 @@ func handleSubmitCards(room *DaifugoRoom, data json.RawMessage) {
 			break
 		}
 	}
-	fmt.Println(game)
 	isSubmitted, _ := game.tryToSubmitCards(submittedPlayer, submitCardsRequest.Cards)
-	fmt.Println(game)
 	if (!isSubmitted) {
 		for playerName, client := range room.clients {
 			if playerName != submitCardsRequest.PlayerName {
@@ -311,26 +267,39 @@ func handleSubmitCards(room *DaifugoRoom, data json.RawMessage) {
 	for i, player := range game.Players {
 		players[i] = PublicPlayer{Name: player.Name, NumHandCards: len(player.Cards)}
 	}
+
+	// send game_data
 	for playerName, client := range room.clients {
+		dataResponse, _ := json.Marshal(gameToGamaDataResponse(game))
+		responseObject := RawMessageResponse{
+			Type: "GAME_DATA",
+			Data: dataResponse,
+		}
+		response, _ := json.Marshal(responseObject)
+		if err := client.WriteMessage(websocket.TextMessage, response); err != nil {
+			log.Printf("WebSocket write error: %v", err)
+			client.Close()
+			delete(room.clients, playerName)
+		}
+	}
+
+	// send my hand card
+	for playerName, client := range room.clients {
+		if playerName != submitCardsRequest.PlayerName {
+			continue
+		}
 		var handCards []Card
 		for _, player := range game.Players {
 			if player.Name == playerName {
 				handCards = player.Cards
+				break
 			}
-		}
-		submitModeSlice := make([]SubmitMode, len(game.SubmitModes))
-		for mode := range game.SubmitModes {
-			submitModeSlice = append(submitModeSlice, mode)	
 		}
 		dataResponse, _ := json.Marshal(ChangeCardStateResponse{
 			HandCards: handCards,
-			Players: players,
-			SubmitModes: submitModeSlice,
-			Turn: game.Turn,
-			TopFieldCards: game.getTopFieldCards(),
 		})
 		responseObject := RawMessageResponse{
-			Type: "CHANGE_CARD_STATE",
+			Type: "MY_HAND_CARD",
 			Data: dataResponse,
 		}
 		response, _ := json.Marshal(responseObject)
@@ -346,7 +315,6 @@ func handleSubmitCards(room *DaifugoRoom, data json.RawMessage) {
 func handleWebsocketMessage(room *DaifugoRoom, rawMessage []byte) {
 	fmt.Println("handleWebsocketMessage")
 	message, err := parseMessageTypeAndPlayerName(rawMessage)
-	fmt.Println(message)
 	if err != nil {
 		log.Printf("MessageType parse error: %v", err)
 		return

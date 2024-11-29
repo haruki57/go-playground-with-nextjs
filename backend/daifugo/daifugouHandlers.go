@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -79,7 +80,7 @@ var StandardRule = map[SpecialRule]struct{}{
 
 type Result struct {
 	GameNum int
-	PlayersByRank []Player
+	PlayersByRank []string
 }
 
 type Game struct {
@@ -92,6 +93,8 @@ type Game struct {
 	PlayingCards []Card
 	LastSubmittedNum int
 	Trush []Card
+	PlayersByRank []string
+	PassCount int
 	Results []Result
 }
 
@@ -117,6 +120,8 @@ func createGameWithStandardRules() *Game {
 		PlayingCards: make([]Card, 0),
 		Turn: 0,
 		LastSubmittedTurn: -1,
+		PlayersByRank: make([]string, 0),
+		Results: make([]Result, 0),
 	}
 }
 
@@ -158,13 +163,16 @@ func (game *Game) startGame() error {
 		player.Cards = make([]Card, 0)
 	}
 	for i, card := range makeDeck() {
+		if i >= 4 {
+			break
+		}
 		game.Players[i%len(game.Players)].Cards = append(game.Players[i%len(game.Players)].Cards, card)
 	}
 	if len(game.Results) >= 1 {
 		previousResult := game.Results[len(game.Results)-1]
 		for i, prevPlayer := range previousResult.PlayersByRank {
 			for _, player := range game.Players {
-				if prevPlayer.Name == player.Name {
+				if prevPlayer == player.Name {
 					player.Role = decideRole(i+1, len(game.Players))
 					break
 				}	
@@ -223,16 +231,14 @@ func (game *Game) getCurrentPlayer() *Player {
 }
 
 func (game *Game) pass() {
-	game.Turn = (game.Turn + 1) % len(game.Players)
-	fmt.Println(game.Turn, game.LastSubmittedTurn)
-	if game.Turn == game.LastSubmittedTurn {
+	game.advanceTurn()
+	game.PassCount++
+	activePlayerNum := len(game.Players) - len(game.PlayersByRank)
+	if game.Turn == game.LastSubmittedTurn || game.PassCount == activePlayerNum {
 		game.discardPlayingCards()
 	}
 }
 func (game *Game) getTopFieldCards() []Card { 
-	fmt.Println("hoge")
-	fmt.Println(game.PlayingCards[len(game.PlayingCards)-game.LastSubmittedNum:])
-	fmt.Println("fuga")
 	return game.PlayingCards[len(game.PlayingCards)-game.LastSubmittedNum:]
 }
 
@@ -249,7 +255,7 @@ func (game *Game) tryToSubmitCards(player *Player, submittingCards []Card) (isSu
 	game.LastSubmittedNum = len(submittingCards)
 	game.PlayingCards = append(game.PlayingCards, submittingCards...)
 	game.LastSubmittedTurn = game.Turn
-	game.Turn = (game.Turn + 1) % len(game.Players)	
+	game.advanceTurn()	
 
 	// Yagiri
 	contains8 := false
@@ -279,14 +285,46 @@ func (game *Game) tryToSubmitCards(player *Player, submittingCards []Card) (isSu
 		game.flipKakumei();
 	}
 
-	
-
-	// TODO remove cards from Player.Cards
 	player.removeCards(submittingCards)
+	if len(player.Cards) == 0 {
+		game.PlayersByRank = append(game.PlayersByRank, player.Name)
+		if (len(game.PlayersByRank) == len(game.Players) - 1) {
+			game.endGame()
+		}
+	}
 	
 	// TODO Shibari
 
 	return true, "submitted"
+}
+
+func (game *Game) endGame() {
+	game.GameState = GameEnded
+	result := Result{}
+	result.GameNum = len(game.Results) + 1
+	result.PlayersByRank = game.PlayersByRank
+	for _, player := range game.Players {
+		found := true
+		for _, playerName := range result.PlayersByRank {
+			if player.Name == playerName {
+				found = false
+			}	
+		}
+		if found {
+			result.PlayersByRank = append(result.PlayersByRank, player.Name)
+		}
+	}
+	game.Results = append(game.Results, result)
+}
+
+func (game *Game) advanceTurn() {
+	for ;; {
+		game.Turn = (game.Turn + 1) % len(game.Players)	
+		currentPlayer := game.getCurrentPlayer()
+		if !slices.Contains(game.PlayersByRank, currentPlayer.Name) {
+			break
+		}
+	}
 }
 
 func (player *Player) removeCards(cards []Card) {
@@ -324,6 +362,10 @@ func flipCardValue(cards []*Card) {
 
 // TODO add special rule such as 縛り
 func (game *Game) canSubmitCards(submittingCards []Card) (canSubmit bool, reason string) {
+	if len(submittingCards) == 0 {
+		return false, "no cards selected"
+	}
+
 	submitModes := game.SubmitModes
 	specialRules := game.SpecialRules
 	topFieldCards := game.getTopFieldCards()

@@ -26,14 +26,10 @@ type GameStartResponse = {
     players: Player[];
   };
 };
-type ChangeCardState = {
-  type: "CHANGE_CARD_STATE";
+type MyHandCardResponse = {
+  type: "MY_HAND_CARD";
   data: {
     handCards: Card[];
-    players: Player[];
-    submitModes: SubmitMode[];
-    topFieldCards: Card[];
-    turn: number;
   };
 };
 
@@ -46,6 +42,7 @@ type GameDataResponse = {
     specialRule: SpecialRule[];
     topFieldCards: Card[];
     turn: number;
+    playersByRank: string[];
   };
 };
 type MessageResponse = { type: "MESSAGE"; data: { message: string } };
@@ -53,7 +50,7 @@ type Response =
   | AddPlayerResponse
   | GameStartResponse
   | MessageResponse
-  | ChangeCardState
+  | MyHandCardResponse
   | GameDataResponse;
 
 type Card = {
@@ -65,7 +62,9 @@ type Card = {
 type Player = {
   name: string;
   numHandCards: number;
+  role: Role;
 };
+type Role = "Daifugo" | "Fugo" | "DaHeiminifugo" | "Hinmin" | "Daihinmin";
 type GameState = "WaitingForPlayers" | "PlayingCards" | "GameEnded";
 type SubmitMode = "Normal" | "ShibariMode" | "KakumeiMode" | "KaidanMode";
 type SpecialRule = "Normal" | "ShibariMode" | "KakumeiMode" | "KaidanMode";
@@ -85,6 +84,7 @@ export default function Page() {
   const [turn, setTurn] = useState<number>(0);
   const [isEnteredRoom, setIsEnteredRoom] = useState<boolean>(false);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [playerNameByRank, setPlayerNameByRank] = useState<string[]>([]);
   const currentPlayer = players.length == 0 ? undefined : players[turn].name;
 
   const handleData = useCallback(
@@ -95,7 +95,7 @@ export default function Page() {
         const playerNamesToAdd = response.data.playerNames;
         setPlayers(
           playerNamesToAdd.map((name) => {
-            return { name, numHandCards: 0 };
+            return { name, numHandCards: 0, role: "Heimin" };
           })
         );
       } else if (response.type === "GAME_START") {
@@ -106,13 +106,9 @@ export default function Page() {
         setPlayers(gameStartData.players);
       } else if (response.type === "MESSAGE") {
         setMessages((prev) => [...prev, response.data.message]);
-      } else if (response.type === "CHANGE_CARD_STATE") {
+      } else if (response.type === "MY_HAND_CARD") {
         setSelectedCards(new Set());
         setHandCards(response.data.handCards);
-        setPlayers(response.data.players);
-        setSubmitModes(response.data.submitModes);
-        setTopFieldCards(response.data.topFieldCards);
-        setTurn(response.data.turn);
       } else if (response.type === "GAME_DATA") {
         console.log(response.data.players);
         setPlayers(response.data.players);
@@ -120,6 +116,7 @@ export default function Page() {
         setGameState(response.data.gameState);
         setTopFieldCards(response.data.topFieldCards);
         setTurn(response.data.turn);
+        setPlayerNameByRank(response.data.playersByRank);
       } else {
         console.log("unknown response type");
       }
@@ -163,21 +160,47 @@ export default function Page() {
     setIsEnteredRoom(true);
     ws.send(JSON.stringify({ type: "ADD_PLAYER", data: { playerName } }));
   };
+
+  if (gameState === "GameEnded") {
+    return (
+      <div>
+        {playerNameByRank.map((playerName) => {
+          return <div key={playerName}>{playerName}</div>;
+        })}
+        <button
+          onClick={() => {
+            ws?.send(JSON.stringify({ type: "GAME_START" }));
+          }}
+        >
+          ゲームを始める
+        </button>
+      </div>
+    );
+  }
+
   if (gameState === "PlayingCards") {
     return (
       <div>
         {players.map((player) => {
           return (
             <div key={player.name} className="m-4">
-              <div
-                className={clsx(currentPlayer === player.name && "font-bold")}
-              >
-                {player.name}
+              <div className="flex gap-4">
+                <div
+                  className={clsx(currentPlayer === player.name && "font-bold")}
+                >
+                  {player.name}
+                </div>
+                <div>{player.role}</div>
               </div>
               <div>カード枚数: {player.numHandCards}</div>
             </div>
           );
         })}
+        <div className="flex mb-4">
+          {playerNameByRank.map((playerName) => {
+            return <div key={playerName}>{playerName}</div>;
+          })}
+        </div>
         <div className="flex mb-4">
           {topFieldCards.map((card) => {
             return (
